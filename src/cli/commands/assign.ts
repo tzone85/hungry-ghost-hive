@@ -6,7 +6,7 @@ import ora from 'ora';
 import { fetchLocalClusterStatus } from '../../cluster/runtime.js';
 import { loadConfig } from '../../config/loader.js';
 import { getRequirementById } from '../../db/queries/requirements.js';
-import { getPlannedStories } from '../../db/queries/stories.js';
+import { getAssignableStories } from '../../db/queries/stories.js';
 import { getTeamById } from '../../db/queries/teams.js';
 import { Scheduler } from '../../orchestrator/scheduler.js';
 import { isManagerRunning, startManager } from '../../tmux/manager.js';
@@ -46,7 +46,7 @@ export const assignCommand = new Command('assign')
         }
 
         // Check if godmode is active
-        const plannedStories = getPlannedStories(db.db);
+        const plannedStories = getAssignableStories(db.db);
         let godmodeActive = false;
         for (const story of plannedStories) {
           if (story.requirement_id) {

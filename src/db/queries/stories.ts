@@ -143,6 +143,26 @@ export function getPlannedStories(db: Database): StoryRow[] {
   );
 }
 
+/**
+ * Get stories eligible for assignment: both planned stories and qa_failed stories
+ * that need to be reassigned to a developer for fixes.
+ * qa_failed stories are included so the assigner can spawn/reuse agents to fix them
+ * rather than leaving them orphaned.
+ */
+export function getAssignableStories(db: Database): StoryRow[] {
+  return queryAll<StoryRow>(
+    db,
+    `
+    SELECT * FROM stories
+    WHERE status IN ('planned', 'qa_failed')
+    ORDER BY
+      CASE WHEN status = 'qa_failed' THEN 0 ELSE 1 END,
+      story_points DESC,
+      created_at
+  `
+  );
+}
+
 export function getInProgressStories(db: Database): StoryRow[] {
   return queryAll<StoryRow>(
     db,

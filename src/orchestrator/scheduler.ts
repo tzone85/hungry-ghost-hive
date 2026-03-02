@@ -26,7 +26,7 @@ import { createLog } from '../db/queries/logs.js';
 import { isAgentReviewingPR } from '../db/queries/pull-requests.js';
 import { getRequirementById, type RequirementRow } from '../db/queries/requirements.js';
 import {
-  getPlannedStories,
+  getAssignableStories,
   getStoriesDependingOn,
   getStoryById,
   updateStory,
@@ -200,13 +200,13 @@ export class Scheduler {
     errors: string[];
     preventedDuplicates: number;
   }> {
-    const plannedStories = getPlannedStories(this.db);
+    const assignableStories = getAssignableStories(this.db);
     const errors: string[] = [];
     let assigned = 0;
     let preventedDuplicates = 0;
 
     // Topological sort stories to respect dependencies
-    const sortedStories = topologicalSort(this.db, plannedStories);
+    const sortedStories = topologicalSort(this.db, assignableStories);
     if (sortedStories === null) {
       errors.push('Circular dependency detected in planned stories');
       return { assigned, errors, preventedDuplicates };
@@ -232,11 +232,10 @@ export class Scheduler {
       if (!team) continue;
 
       // Get available agents for this team
-      // Include agents that are working but have no current story (effectively idle)
+      // Only truly idle agents are available for reuse — working agents (even with
+      // null current_story_id) should not be hijacked as they may be mid-task.
       const agents = getAgentsByTeam(this.db, teamId).filter(
-        a =>
-          a.type !== 'qa' &&
-          (a.status === 'idle' || (a.status === 'working' && a.current_story_id === null))
+        a => a.type !== 'qa' && a.status === 'idle'
       );
       const activeSeniors = getAgentsByTeam(this.db, teamId).filter(
         a => a.type === 'senior' && a.status !== 'terminated'
@@ -601,8 +600,8 @@ export class Scheduler {
     const teams = getAllTeams(this.db);
 
     for (const team of teams) {
-      // Get planned stories for this team
-      const plannedStories = getPlannedStories(this.db).filter(s => s.team_id === team.id);
+      // Get assignable stories for this team (planned + qa_failed)
+      const plannedStories = getAssignableStories(this.db).filter(s => s.team_id === team.id);
 
       // Filter to only assignable stories (dependencies satisfied, within refactor capacity)
       const assignableStories = selectStoriesForCapacity(
@@ -913,10 +912,8 @@ export class Scheduler {
         a => a.tmux_session === sessionName && a.status !== 'terminated'
       );
       if (existingOnSession && (await isTmuxSessionRunning(sessionName))) {
-        const sessionSeniorAvailable =
-          existingOnSession.status === 'idle' ||
-          (existingOnSession.status === 'working' && existingOnSession.current_story_id === null);
-        if (sessionSeniorAvailable) {
+        // Only reuse if truly idle — never hijack a working agent
+        if (existingOnSession.status === 'idle') {
           return existingOnSession;
         }
         throw new OperationalError(
